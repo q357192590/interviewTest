@@ -8,7 +8,7 @@
 二、HashMap 与 ConcurrentHashMap 的实现原理是怎样的？ConcurrentHashMap 是如何保证线程安全的？
     1 数组链表(1.7)红黑树(1.8) / 数组链表(1.7)红黑树(1.8)
     2 不建议并发 / Segment(1.7)Node(1.8)
-    3 对ConcurrentHashMap是如何解决HashMap并发问题这一疑问进行简要说明。
+
         首先new一个新的hash表(nextTable)出来，大小是原来的2倍。后面的rehash都是针对这个新的hash表操作，不涉及原hash表(table)。
         然后会对原hash表(table)中的每个链表进行rehash，此时会尝试获取头节点的锁。这一步就保证了在rehash的过程中不能对这个链表执行put操作。
         3 通过sizeCtl控制，使扩容过程中不会new出多个新hash表来。
@@ -100,3 +100,144 @@
 
     aio:异步非阻塞，服务器实现模式为多个有效请求一个线程。
         即客户端发来的请求由os处理完成才会通知服务器应用启动线程进行处理。
+
+十一、请你谈谈对OOM的认识
+    1 java.lang.StackOverflowError
+    栈空间溢出，递归调用卡死
+
+    2 java.lang.OutOfMemoryError:Java heap space
+    堆内存溢出，对象过大
+
+    3 java.lang.OutOfMemoryError:GC overhead limit exceeded
+    GC回收时间过长：超过98%的时间用来做GC并且回收了而不倒2%的堆内存。连续多次GC，cpu使用率一直是100%，而GC却没有任何成果。
+
+    4 java.lang.OutOfMemoryError:Direct buffer memory
+    本地内存挂了
+    写NIO程序经常使用ByteBuffer来读取或写入数据，这是一种基于通道（Channel）与缓存区（Buffer)的I/O方式，它可以使用Native函数库直接分配堆外内存，
+    然后通过一个存储在java堆里面的DirectByteBuffer对象作为这块内存的引用进行操作，这样能在一些场景中显著提高性能，因为避免了在java堆和native堆中来回复制数据
+        ByteBuffer.allocate(capability) 第一种方式是分配JVM堆内存，属于GC管辖，由于需要拷贝所以速度较慢
+        ByteBuffer.alloctedDirect(capability)分配os本地内存，不属于GC管辖，不需要拷贝，速度较快
+    但如果不断分配本地内存，堆内存很少使用，那么jvm就不需要执行GC，DirectByteBuffer对象们就不会被回收，这时候堆内存充足，但本地内存可能已经使用光了，再次尝试分配本地内存就会出现oom，程序崩溃
+
+    5 java.lang.OutOfMemoryError:unable to create new native thread
+    应用创建了太多线程，一个应用进程创建了多个线程，超过系统承载极限
+    你的服务器并不允许你的应用程序创建这么多线程，linux系统默认允许单个进程可以创建的线程数是1024，超过这个数量，就会报错
+
+    解决办法：
+    降低应用程序创建线程的数量，分析应用给是否针对需要这么多线程，如果不是，减到最低
+    修改linux服务器配置，扩大默认限制。
+
+    6 java.lang.OutOfMemoryError:Metaspace
+    元空间主要存放了虚拟机加载的类的信息、常量池、静态变量、即时编译后的代码
+
+十二、GC垃圾回收算法和垃圾收集器的关系？分别是什么？※
+    垃圾收集器就是算法的具体实现
+
+    GC算法：引用计数、复制、标记清理、标记整理
+
+    4种主要垃圾收集器
+    Serial串行回收：为单线程换进该设计且只是用过一个线程进行垃圾回收，会暂停所有的用户线程，不适合服务器环境
+
+    Paralle并行回收：多个垃圾收集线程并行工作，此时用户线程是暂停的，适用于科学计算/大数据处理首台处理等弱交互场景
+
+    CMS并发标记清除：用户线程和垃圾手机线程同时执行（不一定是并行，可能交替执行），不需要停顿用户线程，互联网公司多用它，适用堆响应时间有要求的场景
+
+    G1：将堆内存分割城不同的区域然后并发的对其进行垃圾回收
+
+十三、怎么查看服务器默认的垃圾收集器是哪个？生产上如何配置垃圾收集器？对垃圾收集器的理解？
+   查看：java -XX:+PrintCommandLinedFlags -version（查看jvm默认的命令行参数）
+   配置：有六种：UseSerialGC UseParallelGC UseConcMarkSweepGC UseParNewGC UseParallelOldGC UseG1GC
+
+   收集器：
+   新生代：serial收集器（串行GC）、 parNew（新生代并行老年代串行） 、 Parallel（并行GC）
+   老年代：CMS 、 Serial Old 、 Parallel Old
+
+   | 参数                              | 新生代垃圾收集器     | 新生代算法         | 老年代垃圾收集器                                              | 老年代算法 |
+   | --------------------------------- | ------------------ | ------------------ | ------------------------------------------------------------ | ----------|
+   | UseSerialGC                       | SerialGC           | 复制               | SerialOldGC                                                  | 标整       |
+   | UseParNewGC                       | ParNew             | 复制               | SerialOldGC                                                  | 标整       |
+   | UseParallelGC<br>UseParallelOldGC | Parallel[Scavenge] | 复制               | Parallel Old                                                 | 标整       |
+   | UseConcMarkSweepGC                | ParNew             | 复制               | CMS+Serial Old的收集器组合(Serial Old 作为CMS出错的后备收集器) | 标清       |
+   | UseG1GC                           | G1整体上采用标整    | 局部是通过复制算法  |                                                              |            |
+
+十四、如何选择垃圾选择器？
+
+    - 单CPU或小内存，单机内存
+      -XX:+UseSerialGC
+
+    - 多CPU，需要最大吞吐量，如后台计算型应用
+      -XX:+UseParallelGC    -XX:+UseParallelOldGC
+
+    - 多CPU，最求低停顿时间，需快速相应，如互联网应用
+      -XX:+ParNewGC    -XX:+UseConcMarkSweepGC
+
+十五、G1和CMS相比优势
+    1. G1不会产生内存碎片
+    2. 可以精确控制停顿。该收集器是把整个堆划分成多个固定大小的区域，每根据允许停顿的时间去收集垃圾最多的区域
+
+十六、生产环境服务器变慢，诊断思路和性能评估谈谈？
+    1. 整机：top 系统性能
+        uptime 是它的精简版
+        load average：系统负载均衡 1min 5min 15min 系统的平均负载值 相加/3>60%压力够
+    2. CPU：vmstat
+        - 查看CPU
+            vmstat -n 2 3 第一个参数是采样的时间间隔数单位s，第二个参数是采样的次数
+
+        - procs
+            **r**：运行和等待CPU时间片的进程数，原则上1核CPu的运行队列不要超过2，真个系统的运行队列不能超过总核数的2倍，否则表示系统压力过大
+            **b**：等待资源的进程数，比如正在等待磁盘I/O，网络I/O等
+        - cpu
+            **us**：用户进程消耗cpu时间百分比，us高，用户进程消耗cpu时间多，如果长期大于50%，优化程序
+            **sy**：内核进程消耗的cpu时间百分比
+            **us+sy**：参考值为80%，如果大于80，说明可能存在cpu不足
+        - 查看额外
+            - 查看所有cpu核信息   mpstat -P ALL 2
+            - 每个进程使用cpu的用量分解信息   pidstat -u 1 -p 进程编号
+    3. 内存：free
+        查看内存   free -m   free -g
+        pidstat -p 进程编号 -r 采样间隔秒数
+    4. 硬盘：df
+        查看磁盘剩余空间  df -h
+    5. 磁盘IO：iostat
+        - 磁盘I/O性能评估
+            iostat -hdk 2 3
+            - util 一秒中又百分几的时间用于I/O操作，接近100%时，表示磁盘带宽跑满，需要优化程序或加磁盘
+
+        - pidstat -d 采样间隔秒数 -p 进程号
+    6. 网络IO：ifstat
+       ifstat l
+
+十七、假如生产环境CPU占用过高，谈谈分析思路和定位？
+    1. 先用top命令找出cpu占比最高的pid
+    2. ps -ef或者jps进一步定位，得知是一个怎样的后台程序惹事（可省）
+       - jps -l
+       - ps -ef|grep java|grep -v grep
+    3. 定位到具体线程或者代码
+       - ps -mp 进程编号 -o Thread,tid,time
+         定位到具体线程
+         -m ：显示所有的线程
+         -p pid 进程使用cpu的时间
+         -o：该参数后是用户自定义格式
+    4. 将需要的线程ID转换为16禁止格式（英文小写格式）
+       - printf "%x\n" 线程ID
+    5. jstack 进程Id|grep tid(16进制线程id小写英文) -A60
+       查看运行轨迹，堆栈异常信息
+
+十八、LockSupport是什么？
+    LockSupport是用来创建锁和其他同步类的基本线程阻塞原语。
+    总之，比wait/notify，await/signal更强。
+        1、无需要放在锁块中。
+        2、LockSupport可无视park、unpark的先后顺序。
+
+    3种让线程等待和唤醒的方法：
+        方式1：使用Object中的wait()方法让线程等待，使用object中的notify()方法唤醒线程
+        方式2：使用JUC包中Condition的await()方法让线程等待，使用signal()方法唤醒线程
+        方式3：LockSupport类可以阻塞当前线程以及唤醒指定被阻塞的线程
+
+十九、LockSupport为什么唤醒两次后阻塞两次，但最终结果还会阻塞线程？
+    因为凭证permit的数量最多为1（不能累加），连续调用两次 unpark和调用一次 unpark效果一样，
+    只会增加一个凭证；而调用两次park却需要消费两个凭证，证不够，不能放行。
+
+二十、简述AQS   
+    AQS使用一个volatile的int类型的成员变量来表示同步状态，通过内置的FIFo队列来完成资源获取的排队工作
+    将每条要去抢占资源的线程封装成一个Node，节点来实现锁的分配，通过CAS完成对State值的修改。
