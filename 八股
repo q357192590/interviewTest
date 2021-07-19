@@ -592,3 +592,50 @@
         Limit分页，order by排序，Max、Sum函数。可能都需要在不同分片排序返回，再	将所有结果汇总再次排序。
     4.主键重复问题。
         UUID、SnowFlake分布式自增ID算法
+        
+四十七、beanfactory和applicationcontext的区别？
+    applicationcontext是BeanFactory的子接口，功能更完整，一般情况都用它。 
+    BeanFactory：
+        1、延时加载，节约内存，但是程序启动时不一定容易发现配置问题
+        2、以编程方式被创建
+        3、支持BeanPostProcessor，BeanFactoryPostProcessor，需要手动注册
+    ApplicationContext：
+        1、容器启动时全部加载，占用内存，容易启动时发现配置错误，运行快
+        2、以编程、生命方式被创建
+        3、支持BeanPostProcessor，BeanFactoryPostProcessor，需要手动注册
+        
+四十八、解释MVCC？
+    多版本并发控制：读取时通过一种快照的方式将数据保存，使得读锁和写锁不冲突。只工作在读已提交和可重复读两个隔离级别下。
+    在InnoDB引擎表中，它的聚簇索引记录中有两个必要的隐藏列：
+    trx_id：
+        这个id用来存储的每次对某条聚簇索引记录进行修改的时候的事务id。
+    roll_pointer：
+        每次对哪条聚簇索引记录有修改的时候，都会把老版本写入undo日志中。这个roll_pointer就是存了一个指针，它指向这条聚簇索引记录的上一个版本的位置，通过它来获得上一个版本的记录信息。(注意插入操作的undo日志没有这个属性，因为它没有老版本)
+    
+    开始事务创建ReadView，ReadView维护当前活动事务的id，即未提交事务的id，为一个排序数组。
+    访问数据时，获取数据中的最大事务id和ReadView对比，在左边意味该事务已提交，可以访问。
+    在右边或者在ReadView中，意味还未提交。不可访问，通过roll_pointer获取上一版本号重新对比。
+    
+    读已提交隔离级别下的事务在每次查询的开始都会生成一个独立的ReadView,而可重复读隔离级别则在第一次读的时候生成一个ReadView，之后的读都复用之前的ReadView。
+    
+四十九、为什么Java中不支持多重继承？
+    1.第一个原因是围绕钻石💎形继承问题产生的歧义。
+    2.多重继承确实使设计复杂化并在转换、构造函数链接等过程中产生问题。假设你需要多重继承的情况并不多，简单起见，明智的决定是省略它。
+        此外，Java 可以通过使用接口支持单继承来避免这种歧义。由于接口只有方法声明而且没有提供任何实现，因此只有一个特定方法的实现，因此不会有任何歧义。
+        
+五十、MyBatis 的工作原理？
+    1）读取 MyBatis 配置文件：mybatis-config.xml 为 MyBatis 的全局配置文件，配置了 MyBatis 的运行环境等信息，例如数据库连接信息。
+
+    2）加载映射文件。映射文件即 SQL 映射文件，该文件中配置了操作数据库的 SQL 语句，需要在 MyBatis 配置文件 mybatis-config.xml 中加载。mybatis-config.xml 文件可以加载多个映射文件，每个文件对应数据库中的一张表。
+
+    3）构造会话工厂：通过 MyBatis 的环境等配置信息构建会话工厂 SqlSessionFactory。
+
+    4）创建会话对象：由会话工厂创建 SqlSession 对象，该对象中包含了执行 SQL 语句的所有方法。
+
+    5）Executor 执行器：MyBatis 底层定义了一个 Executor 接口来操作数据库，它将根据 SqlSession 传递的参数动态地生成需要执行的 SQL 语句，同时负责查询缓存的维护。
+
+    6）MappedStatement 对象：在 Executor 接口的执行方法中有一个 MappedStatement 类型的参数，该参数是对映射信息的封装，用于存储要映射的 SQL 语句的 id、参数等信息。
+
+    7）输入参数映射：输入参数类型可以是 Map、List 等集合类型，也可以是基本数据类型和 POJO 类型。输入参数映射过程类似于 JDBC 对 preparedStatement 对象设置参数的过程。
+
+    8）输出结果映射：输出结果类型可以是 Map、 List 等集合类型，也可以是基本数据类型和 POJO 类型。输出结果映射过程类似于 JDBC 对结果集的解析过程。
