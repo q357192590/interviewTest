@@ -82,4 +82,5 @@ public class ProducerAndConsumer {
         System.out.println("5s，大老板main线程叫停，活动结束");
         shareResource.stop();
     }
+
 }
